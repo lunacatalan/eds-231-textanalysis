@@ -113,16 +113,10 @@ maxPages <- 10
 
 #initiate a list to hold results of our for loop
 pages_list <- list()
-pages <- list()
-
- nytSearch <- fromJSON((baseurl), flatten = TRUE) %>% 
-    data.frame() # make call into a df
-  message("Retrieving page ", i) # message for each item
-  pages_list[[i+1]] <- nytSearch 
 
 #loop
 for(i in 1:maxPages){
-  nytSearch <- fromJSON((baseurl), flatten = TRUE) %>% 
+  nytSearch <- fromJSON(paste0(baseurl, "&page=",i), flatten = TRUE) %>% 
     data.frame() # make call into a df
   message("Retrieving page ", i) # message for each item
   pages_list[[i+1]] <- nytSearch 
@@ -250,9 +244,105 @@ Reminder: Please suppress all long and extraneous output from your submissions (
 1.  Create a free New York Times account (<https://developer.nytimes.com/get-started>)
 
 2.  Pick an interesting environmental key word(s) and use the {jsonlite} package to query the API. Pick something high profile enough and over a large enough time frame that your query yields enough articles for an interesting examination.
+ - Groundwater
+ 
+```{r}
+
+#create the query url
+url <- paste("http://api.nytimes.com/svc/search/v2/articlesearch.json?q=haaland&api-key=",API_KEY, sep ="")
+
+#send the request, receive the response, and flatten
+request <- fromJSON(url, flatten = T)
+
+term1 <- "Groundwater" 
+begin_date <- "20200101"
+end_date <- "20240408"
+
+#construct the query url using API operators
+baseurl <- paste0("http://api.nytimes.com/svc/search/v2/articlesearch.json?q=",
+                  term1, "%20",
+                  "&begin_date=", begin_date,
+                  "&end_date=", end_date,
+                  "&facet_filter=true",
+                  "&api-key=", API_KEY)
+
+#run initial query
+initialQuery <- fromJSON(baseurl)
+
+#maxPages <- round((initialQuery$response$meta$hits[1] / 10)-1) 
+maxPages <- 10
+
+#initiate a list to hold results of our for loop
+pages <- list()
+
+#loop
+for(i in 0:maxPages){
+  nytSearch <- fromJSON(paste0(baseurl, "&page=",i), flatten = TRUE) %>% data.frame()
+  message("Retrieving page ", i)
+  pages[[i+1]] <- nytSearch 
+  Sys.sleep(16)
+}
+
+#bind the pages and create a tibble from nytDat
+nyt_df <- bind_rows(pages)
+```
+
 
 3.  Recreate the publications per day and word frequency plots using the first paragraph field.  This time filter on the response.docs.news_desk variable to winnow out irrelevant results.
 
--   Make some (at least 3) transformations to the corpus including: add context-specific stopword(s), stem a key term and its variants, remove numbers)
+-   Make some (at least 3) transformations to the corpus including: add context-specific stopword(s), stem a key term and its variants, remove numbers
+
+Publications per day:
+```{r}
+
+nyt_df %>%
+  mutate(pubDay=gsub("T.*","",response.docs.pub_date)) %>% 
+  group_by(pubDay) %>%
+  summarise(count=n()) %>%
+  filter(count >= 2) %>%
+  ggplot() +
+  geom_bar(aes(x=reorder(pubDay, count), y=count), stat="identity") +
+  coord_flip() #bring date so bars go longwise
+
+```
+
+Word frequency plot:
+```{r}
+# token is unit of analysis we have selected to evaluate our data - standard is a single work
+tokenized <- nyt_df %>% 
+  filter(response.docs.news_desk != "Metro") %>% # remove sports news
+  filter(response.docs.news_desk != "Metropolitan") %>% 
+  # take text, break it down to token level, each row corresponds to single token
+  unnest_tokens(word, response.docs.lead_paragraph) # word is new column, paragraph is column we are unnesting from
+
+# remove the stop words
+tokenized <- tokenized %>% 
+  anti_join(stop_words)
+
+tokenized$word
+
+# remove numbers
+token_clean <-  str_remove_all(tokenized$word, "[:digit:]")
+
+## cleaning includes combining words that have 's
+token_clean <- gsub("'s", "", token_clean)
+
+token_clean <- as.data.frame(token_clean) %>% 
+  rename(word = token_clean)
+
+tokenized <- tokenized %>% 
+  inner_join(token_clean, by = "word")
+  
+
+tokenized %>%
+  count(word, sort = TRUE) %>% # sort by occurance of word
+  filter(n > 5) %>% 
+  mutate(word = reorder(word, n)) %>% 
+  ggplot(aes(x = n, y = word)) +
+  geom_col() +
+  labs(y = NULL)
+
+```
+
 
 4.  Recreate the publications per day and word frequency plots using the headlines variable (response.docs.headline.main). Compare the distributions of word frequencies between the first paragraph and headlines. Do you see any difference?
