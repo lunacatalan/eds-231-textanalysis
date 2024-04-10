@@ -1,6 +1,6 @@
 ---
 title: "Lab 1: NYT API"
-author: "Mateo Robbins"
+author: "Luna Catalán"
 date: "2024-04-03"
 output: html_document
 ---
@@ -11,6 +11,9 @@ library(jsonlite) #convert results from API queries into R-friendly formats
 library(tidyverse) #tidy
 library(tidytext) #text data management and analysis
 library(ggplot2) #plot word frequencies and publication dates
+
+# for synonym
+library(tm)
 
 #assign API key.  When you create a NYT Dev account, you will be given a key
 API_KEY <- "HpcxaZX9u9zu0dIGAGa6HcPAGOc4hzUY"
@@ -28,7 +31,7 @@ We'll send a query to the NY Times API using a URL that contains information abo
 
 fromJSON() is a wrapper function that handles our request and the API response. We'll use it to create an object, t, with the results of our query. The flatten = T argument converts from the nested JSON format to an R-friendlier form.
 
-```{r api, eval = FALSE}
+```{r eval = FALSE}
 
 #create the query url
 url <- paste("http://api.nytimes.com/svc/search/v2/articlesearch.json?q=haaland&api-key=",API_KEY, sep ="")
@@ -87,7 +90,7 @@ str_locate_all(x, "as") # all positions
 
 ### OK, it's working but we want more data. Let's set some parameters for a bigger query.
 
-```{r}
+```{r eval=FALSE}
 term1 <- "Deb" 
 term2 <- "&Haaland" # Need to use & to string  together separate terms
 begin_date <- "20210120"
@@ -126,7 +129,7 @@ for(i in 1:maxPages){
 
 We converted each returned JSON object into a data frame.
 
-```{r, bind_rows}
+```{r, bind_rows, eval=FALSE}
 
 #bind the pages and create a tibble from nytDat
 nyt_df <- bind_rows(pages_list)
@@ -135,7 +138,7 @@ names(nyt_df)
 ```
 
 Let's start exploring our data.  What types of content did we turn up?
-```{r article-type}
+```{r article-type, eval=FALSE}
 nyt_df %>% 
   group_by(response.docs.type_of_material) %>%
   summarize(count=n()) %>% #This creates a new data frame with the count of records for each type_of_material.
@@ -146,7 +149,7 @@ nyt_df %>%
   coord_flip()
 ```
 
-```{r date-plot}
+```{r date-plot, eval=FALSE}
 
 nyt_df %>%
   mutate(pubDay=gsub("T.*","",response.docs.pub_date)) %>% 
@@ -160,7 +163,7 @@ nyt_df %>%
 
 The New York Times doesn't make full text of the articles available through the API. But we can use the first paragraph of each article.
 
-```{r plot_frequencies}
+```{r plot_frequencies, eval=FALSE}
 #find first paragraph field
 names(nyt_df)
 head(nyt_df[, 1:6])
@@ -177,7 +180,7 @@ tokenized[,"word"]
 ```
 
 Alright, let's starting analyzing our data.  What the most frequent words in the articles we have?
-```{r word_frequencies}
+```{r word_frequencies, eval=FALSE}
 tokenized %>%
   count(word, sort = TRUE) %>% # sort by occurance of word
   filter(n > 50) %>% 
@@ -189,7 +192,7 @@ tokenized %>%
 
 Uh oh, who knows what we need to do here?
 
-```{r stop-words}
+```{r stop-words, eval=FALSE}
 
 #load stop words
 data(stop_words)
@@ -246,7 +249,7 @@ Reminder: Please suppress all long and extraneous output from your submissions (
 2.  Pick an interesting environmental key word(s) and use the {jsonlite} package to query the API. Pick something high profile enough and over a large enough time frame that your query yields enough articles for an interesting examination.
  - Groundwater
  
-```{r}
+```{r message=FALSE, warning = FALSE}
 
 #create the query url
 url <- paste("http://api.nytimes.com/svc/search/v2/articlesearch.json?q=haaland&api-key=",API_KEY, sep ="")
@@ -255,7 +258,7 @@ url <- paste("http://api.nytimes.com/svc/search/v2/articlesearch.json?q=haaland&
 request <- fromJSON(url, flatten = T)
 
 term1 <- "Groundwater" 
-begin_date <- "20200101"
+begin_date <- "20150101"
 end_date <- "20240408"
 
 #construct the query url using API operators
@@ -292,26 +295,34 @@ nyt_df <- bind_rows(pages)
 
 -   Make some (at least 3) transformations to the corpus including: add context-specific stopword(s), stem a key term and its variants, remove numbers
 
-Publications per day:
-```{r}
-
-nyt_df %>%
-  mutate(pubDay=gsub("T.*","",response.docs.pub_date)) %>% 
-  group_by(pubDay) %>%
-  summarise(count=n()) %>%
-  filter(count >= 2) %>%
+Word frequency plot:
+```{r message=FALSE, warning = FALSE}
+nyt_df %>% 
+  group_by(response.docs.type_of_material) %>%
+  summarize(count=n()) %>% #This creates a new data frame with the count of records for each type_of_material.
+  mutate(percent = (count / sum(count))*100) %>% #add percent of total column
   ggplot() +
-  geom_bar(aes(x=reorder(pubDay, count), y=count), stat="identity") +
-  coord_flip() #bring date so bars go longwise
+  geom_bar(aes(y=percent, x=response.docs.type_of_material, fill=response.docs.type_of_material), 
+           stat = "identity") + 
+  coord_flip()
 
+nyt_df %>% 
+  group_by(response.docs.news_desk) %>%
+  summarize(count=n()) %>% #This creates a new data frame with the count of records for each news outlet.
+  mutate(percent = (count / sum(count))*100) %>% #add percent of total column
+  ggplot() +
+  geom_bar(aes(y=percent, x=response.docs.news_desk, fill=response.docs.news_desk), 
+           stat = "identity") + 
+  coord_flip()
 ```
 
-Word frequency plot:
-```{r}
+
+```{r message=FALSE, warning = FALSE}
 # token is unit of analysis we have selected to evaluate our data - standard is a single work
 tokenized <- nyt_df %>% 
-  filter(response.docs.news_desk != "Metro") %>% # remove sports news
-  filter(response.docs.news_desk != "Metropolitan") %>% 
+  filter(response.docs.news_desk != "Weekend") %>% # remove weekend news
+  filter(response.docs.news_desk != "Travel") %>%
+  filter(response.docs.news_desk != "Podcasts") %>%
   # take text, break it down to token level, each row corresponds to single token
   unnest_tokens(word, response.docs.lead_paragraph) # word is new column, paragraph is column we are unnesting from
 
@@ -319,7 +330,7 @@ tokenized <- nyt_df %>%
 tokenized <- tokenized %>% 
   anti_join(stop_words)
 
-tokenized$word
+#tokenized$word
 
 # remove numbers
 token_clean <-  str_remove_all(tokenized$word, "[:digit:]")
@@ -327,21 +338,115 @@ token_clean <-  str_remove_all(tokenized$word, "[:digit:]")
 ## cleaning includes combining words that have 's
 token_clean <- gsub("’s", "", token_clean)
 
+
+
 # filter for the words
 tokenized <- tokenized %>% 
-  filter(word %in% token_clean) 
+  filter(word %in% token_clean) %>% # select the cleaned words 
+  mutate(word = case_when(word == "calif" ~ "california",
+                          word == "aquifers" ~ "aquifer",
+                          TRUE ~ word)) %>% 
+  filter(word != "york") %>% 
+  filter(word != "time") %>% 
+  filter(word != "times")
   
-tokenized %>%
+t_lead_plot <- tokenized %>%
   count(word, sort = TRUE) %>% # sort by occurance of word
-  filter(n > 25) %>% 
+  filter(n > 7) %>% 
   mutate(word = reorder(word, n)) %>% 
   ggplot(aes(x = n, y = word)) +
-  geom_col() +
-  labs(y = NULL)
+  geom_col(fill = "darkblue") +
+  labs(y = NULL,
+       title = "Word Frequency in Lead Paragraph") +
+  theme_bw()
 
+t_lead_plot
 
 
 ```
 
+Publications per day:
+```{r message=FALSE, warning = FALSE}
+
+tokenized %>%
+  mutate(pubDay=gsub("T.*","",response.docs.pub_date)) %>% 
+  group_by(pubDay) %>%
+  summarise(count=n()) %>%
+  filter(count >= 8) %>%
+  ggplot() +
+  geom_bar(aes(x=reorder(pubDay, count), y=count), stat="identity") +
+  coord_flip() #bring date so bars go longwise
+
+```
 
 4.  Recreate the publications per day and word frequency plots using the headlines variable (response.docs.headline.main). Compare the distributions of word frequencies between the first paragraph and headlines. Do you see any difference?
+
+```{r message=FALSE, warning = FALSE}
+# token is unit of analysis we have selected to evaluate our data - standard is a single work
+tokenized_headline <- nyt_df %>% 
+  filter(response.docs.news_desk != "Weekend") %>% # remove weekend news
+  filter(response.docs.news_desk != "Travel") %>%
+  filter(response.docs.news_desk != "Podcasts") %>%
+  # take text, break it down to token level, each row corresponds to single token
+  unnest_tokens(word, response.docs.headline.main) # word is new column, paragraph is column we are unnesting from
+
+# remove the stop words
+tokenized_headline <- tokenized_headline%>% 
+  anti_join(stop_words)
+
+#tokenized$word
+
+# remove numbers
+token_clean <-  str_remove_all(tokenized_headline$word, "[:digit:]")
+
+## cleaning includes combining words that have 's
+token_clean <- gsub("’s", "", token_clean)
+
+
+
+# filter for the words
+tokenized_headline <- tokenized_headline %>% 
+  filter(word %in% token_clean) %>% # select the cleaned words 
+  mutate(word = case_when(word == "calif" ~ "california",
+                          word == "aquifers" ~ "aquifer",
+                          TRUE ~ word)) %>% 
+  filter(word != "york") %>% 
+  filter(word != "time") %>% 
+  filter(word != "times")
+  
+t_head_plot <- tokenized_headline %>%
+  count(word, sort = TRUE) %>% # sort by occurance of word
+  filter(n > 7) %>% 
+  mutate(word = reorder(word, n)) %>% 
+  ggplot(aes(x = n, y = word)) +
+  geom_col(fill = "darkblue") +
+  labs(y = NULL, 
+       title = "Word Frequency in Main Headline") +
+  theme_bw()
+
+t_head_plot
+```
+
+
+Publications per day: 
+```{r message=FALSE, warning = FALSE}
+
+tokenized_headline %>%
+  mutate(pubDay=gsub("T.*","",response.docs.pub_date)) %>% 
+  group_by(pubDay) %>%
+  summarise(count=n()) %>%
+  filter(count >= 8) %>%
+  ggplot() +
+  geom_bar(aes(x=reorder(pubDay, count), y=count), stat="identity") +
+  coord_flip() #bring date so bars go longwise
+
+```
+
+Comparing the word frequencies for the lead paragraph and the headlines:
+
+The distribution of the words are very similar, since there are a lot of occurances of 1 word, and then it declines very rapidly from there. This follows zipfs law. In the lead paragraph there tends to be a greater magntitude of occurances, but the top 3 words are `water`, `groundwater`, and `california` in both the lead and main headline. This makes sense since the lead paragraph is longer, which means it has more words. A way to look at this would be to divide by the number of words total, which would give you a proportion. 
+
+```{r message=FALSE, warning = FALSE}
+ggpubr::ggarrange(t_lead_plot, t_head_plot)
+```
+
