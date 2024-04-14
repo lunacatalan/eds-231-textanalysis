@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ## Assignment (Due 4/16 by 11:59 PM)
-```{r}
+```{r message=FALSE, warning=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(LexisNexisTools)
 library(dplyr)
@@ -32,9 +32,11 @@ library(ggplot2)
 -   Read your Nexis article documents into RStudio.
 
 ```{r}
+
 setwd("data/News_gw_policy") #where the .docxs live
 news_files <- list.files(pattern = ".docx", path = getwd(),
                       full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
+
 
 # take files list and read them into LNT object
 dat <- lnt_read(news_files)
@@ -49,17 +51,56 @@ dat2 <- tibble(Date = meta_df$Date,
                Headline = meta_df$Headline,
                id = articles_df$ID,
                text = articles_df$Article)
+
+# paragraphs <- tibble(art_id = paragraphs_df$Art_ID,
+#                     paragraph = paragraphs_df$Paragraph)
 ```
 
 
 -   Use the full text of the articles for the analysis. Inspect the data (in particular the full-text article data).
 
-```{=html}
-<!-- -->
+```{r}
+# dat2$text %>% 
+#   lnt_lookup(pattern = "Delivered by Newstex")
+
 ```
+
 -   If necessary, clean any artifacts of the data collection process (hint: this type of thing should be removed: "Apr 04, 2022( Biofuels Digest: <http://www.biofuelsdigest.com/Delivered> by Newstex") and any other urls)
 
+```{r}
+text_clean <- dat2 %>% 
+  
+  # remove the urls from the text
+  separate_wider_delim(text, 
+                       delim = "Delivered by Newstex)   ",
+                       names = c("delete", "text"),
+                       too_few = "align_end") %>% 
+  select(-delete) %>% 
+  
+  # remove the notes at the end
+  separate_wider_delim(text, 
+                       delim = "The views expressed in any and all content distributed by Newstex",
+                       names = c("text", "delete"),
+                       too_few = "align_start") %>% 
+  select(-delete) %>% 
+  
+  # remove any of the urls that start with https
+  mutate(text = gsub(" ?(f|ht)tp(s?)://(.*)[.][a-z]+", "",
+                     text))
+  
+  
+  
+```
+
 -   Remove any clear duplicate articles. LNT has a method for this, but it doesn't seem to work, so you probably need to do it manually.
+
+```{r}
+headlines <- unique(text_clean$Headline)
+
+length(unique(text_clean$text))
+
+```
+
 
 ### Explore your data and conduct the following analyses:
 
