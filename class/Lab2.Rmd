@@ -37,7 +37,6 @@ setwd("data/News_gw_policy") #where the .docxs live
 news_files <- list.files(pattern = ".docx", path = getwd(),
                       full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
 
-
 # take files list and read them into LNT object
 dat <- lnt_read(news_files)
 
@@ -59,9 +58,9 @@ dat2 <- tibble(Date = meta_df$Date,
 
 -   Use the full text of the articles for the analysis. Inspect the data (in particular the full-text article data).
 
-```{r}
-# dat2$text %>% 
-#   lnt_lookup(pattern = "Delivered by Newstex")
+```{r eval = FALSE}
+dat2$text %>%
+  lnt_lookup(pattern = "Delivered by Newstex")
 
 ```
 
@@ -86,7 +85,8 @@ text_clean <- dat2 %>%
   
   # remove any of the urls that start with https
   mutate(text = gsub(" ?(f|ht)tp(s?)://(.*)[.][a-z]+", "",
-                     text))
+                     text)) 
+  #filter(Date != is.na(Date)) # remove article with NA
   
   
   
@@ -95,9 +95,18 @@ text_clean <- dat2 %>%
 -   Remove any clear duplicate articles. LNT has a method for this, but it doesn't seem to work, so you probably need to do it manually.
 
 ```{r}
-headlines <- unique(text_clean$Headline)
+# check the length of unique headlines
+length(unique(text_clean$Headline))
 
-length(unique(text_clean$text))
+# remove the duplicates by keeping only distinct headline names
+text_clean <- text_clean %>% 
+  distinct(Headline, .keep_all = TRUE)
+  # mutate(Date = ifelse(is.na(Date), 
+  #                      "unk",
+  #                      Date),
+  #        Headline = ifelse(is.na(Headline), 
+  #                      "unk",
+  #                      Headline))
 
 ```
 
@@ -105,7 +114,134 @@ length(unique(text_clean$text))
 ### Explore your data and conduct the following analyses:
 
 1.  Calculate mean sentiment across all your articles
+
+```{r}
+#load the bing sentiment lexicon from tidytext
+bing_sent <-  get_sentiments("bing")
+
+text_words <- text_clean %>% 
+  unnest_tokens(output = word, 
+                input = text,
+                token = "words") %>% 
+  anti_join(stop_words) # take out the stop words
+
+# sentiment values in words
+sent_words <- text_words %>% 
+  inner_join(bing_sent, by = "word") %>% 
+  mutate(sent_num = case_when(sentiment == "negative" ~ -1,
+                              sentiment == "positive" ~ 1))
+# sentiment values in articles
+sent_article <- sent_words %>% 
+  group_by(Headline) %>% 
+  count(id, sentiment) %>% 
+  pivot_wider(names_from = sentiment, 
+              values_from = n) %>% 
+  mutate(polarity = positive - negative) %>% 
+  ungroup()
+
+# calculate the mean polarity value
+mean(sent_article$polarity, na.rm = TRUE)
+```
+
 2.  Sentiment by article plot. The one provided in class needs significant improvement.
+
+```{r}
+
+sent_article_plot <- sent_article %>% 
+  select(id, negative, positive) %>% 
+  pivot_longer(!id) %>% 
+  rename(sentiment = name,
+         score = value)
+
+ggplot(sent_article_plot, 
+       aes(x = reorder(id, -score), y = score)) +
+  geom_col(aes(fill = sentiment)) +
+  theme_classic() +
+  scale_fill_manual(values = c("positive" = "slateblue", "negative" = "orange")) +
+  labs(title = "Sentiment Analysis: Groundwater Policy",
+       x = "Article ID",
+       y = "Score") +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+```
+
 3.  Most common nrc emotion words and plot by emotion
+
+```{r}
+
+nrc_sent <- get_sentiments("nrc")
+
+nrc_word_counts <- text_words %>% 
+  inner_join(nrc_sent, by = "word") %>% 
+  count(word, sentiment, sort = T)
+
+nrc_count_plot <- nrc_word_counts %>% 
+  group_by(sentiment) %>% 
+  slice_max(order_by = n, n = 7) %>% 
+  ungroup() %>% 
+  mutate(word = reorder(word, n))
+
+ggplot(data = nrc_count_plot, 
+       aes(x = n, y = word, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  theme_minimal()
+
+```
+
+
 4.  Look at the nrc contribution to emotion by word plots. Identify and reclassify or remove at least one term that gives misleading results in your context.
+
+- Words: larger, devastation
+
+```{r}
+# reclassify and remove terms
+nrc_sent_edit <- nrc_sent %>% 
+  filter(word != 'larger') %>%  # remove this word
+  mutate(sentiment = ifelse(word == "devastation" & sentiment == "surprise", # reclassify 
+         NA, 
+         sentiment))
+
+# plot the new word plots
+text_words %>% 
+  inner_join(nrc_sent_edit, by = "word") %>% 
+  count(word, sentiment, sort = T) %>% 
+  group_by(sentiment) %>% 
+  slice_max(order_by = n, n = 7) %>% 
+  ungroup() %>% 
+  mutate(word = reorder(word, n)) %>% 
+  ggplot(aes(x = n, y = word, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  theme_minimal()
+
+```
+
+
 5.  Plot the amount of nrc emotion words as a percentage of all the emotion words used each day (aggregate text from articles published on the same day). How does the distribution of emotion words change over time? Can you think of any reason this would be the case?
+
+The distribution of emotion words in 2023 did not really change over time. This might be because overall, water issues have been pretty apparent and everyone may be on the same page and the sentiments are pretty consistent. 
+
+```{r}
+
+nrc_word_counts_day <- text_words %>% 
+  left_join(nrc_sent, by = "word") %>% 
+  # is there an emotion word or not
+  mutate(nrc_word = ifelse(is.na(sentiment),
+                           "no", 
+                           "yes")) %>% 
+  group_by(Date) %>% 
+  count(Date, nrc_word, sort = T) %>% 
+  pivot_wider(names_from = nrc_word, 
+              values_from = n) %>% 
+  mutate(total = no + yes,
+         nrc_percent = (yes/total)*100)
+  
+ggplot(nrc_word_counts_day, aes(x = Date, y = nrc_percent)) +
+  geom_col(fill = "darkblue") +
+  theme_minimal() +
+  labs(x = "Year 2023",
+       y = "Percent of Emotion Words")
+```
+
