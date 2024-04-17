@@ -1,8 +1,10 @@
 ---
-title: "Lab 2: Sentiment Analysis I"
+title: 'Lab 2: Sentiment Analysis I'
 author: "Luna Herschenfeld-Catalán"
-date: "2024-04-10"
-output: html_document
+date: "2024-04-16"
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 ## Assignment (Due 4/16 by 11:59 PM)
@@ -31,19 +33,20 @@ library(ggplot2)
 
 -   Read your Nexis article documents into RStudio.
 
-```{r}
-
-setwd("data/News_gw_policy") #where the .docxs live
-news_files <- list.files(pattern = ".docx", path = getwd(),
-                      full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
+```{r message=FALSE, warning=FALSE, eval = FALSE}
+setwd("data/News_gw_policy/") #where the .docxs live
+news_files <- list.files(pattern = ".docx", 
+                         path = getwd(),
+                         full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
 
 # take files list and read them into LNT object
-dat <- lnt_read(news_files)
+dat <- LexisNexisTools::lnt_read(news_files)
 
 # reference 'slot' using @
 meta_df <- dat@meta
 articles_df <- dat@articles
 paragraphs_df <- dat@paragraphs
+
 
 # create tibble with these columns
 dat2 <- tibble(Date = meta_df$Date,
@@ -53,6 +56,8 @@ dat2 <- tibble(Date = meta_df$Date,
 
 # paragraphs <- tibble(art_id = paragraphs_df$Art_ID,
 #                     paragraph = paragraphs_df$Paragraph)
+
+write.csv(dat2, file.path("/Users/lunacatalan/Documents/dev/eds231/eds-231-textanalysis/class/data/News_gw_policy/news.csv"))
 ```
 
 
@@ -66,8 +71,11 @@ dat2$text %>%
 
 -   If necessary, clean any artifacts of the data collection process (hint: this type of thing should be removed: "Apr 04, 2022( Biofuels Digest: <http://www.biofuelsdigest.com/Delivered> by Newstex") and any other urls)
 
-```{r}
-text_clean <- dat2 %>% 
+```{r message=FALSE, warning=FALSE}
+
+news_df <- read_csv(here::here("class", "data", "News_gw_policy", "news.csv"))
+
+text_clean <- news_df %>% 
   
   # remove the urls from the text
   separate_wider_delim(text, 
@@ -94,7 +102,7 @@ text_clean <- dat2 %>%
 
 -   Remove any clear duplicate articles. LNT has a method for this, but it doesn't seem to work, so you probably need to do it manually.
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 # check the length of unique headlines
 length(unique(text_clean$Headline))
 
@@ -115,7 +123,7 @@ text_clean <- text_clean %>%
 
 1.  Calculate mean sentiment across all your articles
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 #load the bing sentiment lexicon from tidytext
 bing_sent <-  get_sentiments("bing")
 
@@ -145,7 +153,7 @@ mean(sent_article$polarity, na.rm = TRUE)
 
 2.  Sentiment by article plot. The one provided in class needs significant improvement.
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 
 sent_article_plot <- sent_article %>% 
   select(id, negative, positive) %>% 
@@ -168,7 +176,7 @@ ggplot(sent_article_plot,
 
 3.  Most common nrc emotion words and plot by emotion
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 
 nrc_sent <- get_sentiments("nrc")
 
@@ -195,7 +203,7 @@ ggplot(data = nrc_count_plot,
 
 - Words: larger, devastation
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 # reclassify and remove terms
 nrc_sent_edit <- nrc_sent %>% 
   filter(word != 'larger') %>%  # remove this word
@@ -223,7 +231,7 @@ text_words %>%
 
 The distribution of emotion words in 2023 did not really change over time. This might be because overall, water issues have been pretty apparent and everyone may be on the same page and the sentiments are pretty consistent. 
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 
 nrc_word_counts_day <- text_words %>% 
   left_join(nrc_sent, by = "word") %>% 
