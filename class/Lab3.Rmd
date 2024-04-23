@@ -10,12 +10,189 @@ Due next week: April 23 at 11:59PM
 
 For this assignment you'll use the article data you downloaded from Nexis Uni in Week 2.
 
+
+```{r packages, warning=FALSE, message=FALSE}
+library(quanteda)
+library(tm)
+library(topicmodels)
+library(ldatuning)
+library(tidyverse)
+library(tidytext)
+library(reshape2)
+```
+
 1.  Create a corpus from your articles.
+```{r message=FALSE, error=FALSE}
+news_tbl <- read_csv(here::here("class", "data", "News_gw_policy", "news.csv"))
+
+corpus <- corpus(x = news_tbl, 
+                 text_field = "text") # column to extract text
+```
+
 
 2.  Clean the data as appropriate.
+- remove stop words
+- remove punctuation, numbers, and url
+- make all the words lowercase
+- remove infrequent words
+```{r message=FALSE, error=FALSE}
+tokens <- tokens(corpus, 
+               remove_punct = T,
+               remove_numbers = T,
+               remove_url = T)
+
+# create stop word dictionary
+add_stops <- stopwords(kind = quanteda_options(("language_stopwords")))
+
+# remove stop words
+tok1 <- tokens_select(tokens,
+                     pattern = add_stops, # remove
+                     selection = "remove")
+
+dfm1 <- dfm(tok1,
+            tolower = T) # make words lowercase
+
+# remove the really infrequent words from document feature matrix
+dfm2 <- dfm_trim(dfm1,
+                 min_docfreq = 2) # must occur at least 2 times to stay
+
+# if the sum across the row is greater than 0 we will keep it 
+sel_ind <- slam::row_sums(dfm2) > 0    
+dfm <- dfm2[sel_ind, ]
+```
+
 
 3.  Run three models (i.e. with 3 values of k) and select the overall best value for k (the number of topics) - include some justification for your selection: theory, FindTopicsNumber() optimization metrics, interpretability, LDAvis. Select the best single value of k.
 
+```{r message=FALSE, error=FALSE}
+set.seed(123)
+
+results <- FindTopicsNumber(dfm,
+                            topics = seq(from = 1,
+                                         to = 20,
+                                         by = 1),
+                            metrics = c("CaoJuan2009", "Deveaud2014"), # what to measure how good the number of topics 
+                            method = "Gibbs",
+                            verbose = T)
+
+FindTopicsNumber_plot(results)
+```
+
+
+Try values of k from FindTopicsNumber(): 4, 5, 9
+
+```{r message=FALSE, error=FALSE}
+k <- 4
+
+topicModel_k <- LDA(dfm, # matrix
+                     k, # number of topics
+                     method = "Gibbs", # the upsampling process 
+                     control = list(iter = 1000,
+                                    verbose = 25))
+
+tmResults <- posterior(topicModel_k)
+terms(topicModel_k, 10)
+
+beta <- tmResults$terms
+# distribution of topics across articles
+theta <- tmResults$topics
+vocab <- colnames(beta)
+
+topics <- tidy(topicModel_k, matrix = "beta")
+
+top_terms4 <- topics %>% 
+  group_by(topic) %>% 
+  top_n(10, beta) %>% 
+  ungroup() %>% 
+  arrange(topic, -beta)
+
+k <- 5
+
+topicModel_k <- LDA(dfm, # matrix
+                     k, # number of topics
+                     method = "Gibbs", # the upsampling process 
+                     control = list(iter = 1000,
+                                    verbose = 25))
+
+tmResults <- posterior(topicModel_k)
+terms(topicModel_k, 10)
+
+beta <- tmResults$terms
+# distribution of topics across articles
+theta <- tmResults$topics
+vocab <- colnames(beta)
+
+topics <- tidy(topicModel_k, matrix = "beta")
+
+top_terms5 <- topics %>% 
+  group_by(topic) %>% 
+  top_n(10, beta) %>% 
+  ungroup() %>% 
+  arrange(topic, -beta)
+
+k <- 9
+
+topicModel_k <- LDA(dfm, # matrix
+                     k, # number of topics
+                     method = "Gibbs", # the upsampling process 
+                     control = list(iter = 1000,
+                                    verbose = 25))
+
+tmResults <- posterior(topicModel_k)
+terms(topicModel_k, 10)
+
+beta <- tmResults$terms
+# distribution of topics across articles
+theta <- tmResults$topics
+vocab <- colnames(beta)
+
+topics <- tidy(topicModel_k, matrix = "beta")
+
+top_terms9 <- topics %>% 
+  group_by(topic) %>% 
+  top_n(10, beta) %>% 
+  ungroup() %>% 
+  arrange(topic, -beta)
+```
+
+
+
 4.  Plot the top terms in each topic and the distribution of topics across a sample of the documents (constrained by what looks good in the plot).
+
+```{r message=FALSE, error=FALSE}
+
+# plot the terms
+top_terms9 <- topics %>% 
+  group_by(topic) %>% 
+  top_n(10, beta) %>% 
+  ungroup() %>% 
+  arrange(topic, -beta)
+
+# distribution of topics across documents - select the first 5 documents
+example_ids <- c(1:5)
+n <- length(example_ids)
+
+# get topic proportions from example documents
+example_props <- theta[example_ids,] # pull index ids
+colnames(example_props) <- topic_names
+
+#combine example topics with identifiers and melt to plotting form
+viz_df <- melt(cbind(data.frame(example_props),
+                     document = factor(1:n),
+                     variable.names = "topic",
+                     id.vars = "document"))
+
+ggplot(data = viz_df,
+       aes(x = variable, 
+           y = value,
+           fill = document),
+       ylab = "proportion") +
+  geom_bar(stat = "identity") +
+  coord_flip() + 
+  facet_wrap(~document, ncol = n)
+
+
+```
+
 
 5.  Take a stab at interpreting the resulting topics. What are the key themes discussed in the articles in your data base?
