@@ -1,6 +1,6 @@
 ---
 title: "Lab3"
-author: "Your Name"
+author: "Luna Catalan"
 date: "2024-04-17"
 output: html_document
 ---
@@ -19,14 +19,59 @@ library(ldatuning)
 library(tidyverse)
 library(tidytext)
 library(reshape2)
+library(LDAvis) #visualization 
+library("tsne") #matrix decomposition
 ```
 
 1.  Create a corpus from your articles.
-```{r message=FALSE, error=FALSE}
-news_tbl <- read_csv(here::here("class", "data", "News_gw_policy", "news.csv"))
+```{r message=FALSE, warning=FALSE, results='hide'}
+dir <- here::here("class", "data", "News_gw_policy")
+#news_tbl <- read_csv(here::here("class", "data", "News_gw_policy", "news.csv"))
+news_files <- list.files(pattern = ".docx", 
+                         path = dir,
+                         full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
+news_files
 
-corpus <- corpus(x = news_tbl, 
+# take files list and read them into LNT object
+dat <- LexisNexisTools::lnt_read(news_files, convert_date = FALSE, remove_cover = FALSE) 
+
+# reference 'slot' using @
+meta_df <- dat@meta
+articles_df <- dat@articles
+paragraphs_df <- dat@paragraphs
+
+
+# create tibble with these columns
+dat2 <- tibble(Date = meta_df$Date,
+               Headline = meta_df$Headline,
+               id = articles_df$ID,
+               text = articles_df$Article)
+
+text_clean <- dat2 %>% 
+  
+  # remove the urls from the text
+  separate_wider_delim(text, 
+                       delim = "Delivered by Newstex)   ",
+                       names = c("delete", "text"),
+                       too_few = "align_end") %>% 
+  select(-delete) %>% 
+  
+  # remove the notes at the end
+  separate_wider_delim(text, 
+                       delim = "The views expressed in any and all content distributed by Newstex",
+                       names = c("text", "delete"),
+                       too_few = "align_start") %>% 
+  select(-delete) %>% 
+  
+  # remove any of the urls that start with https
+  mutate(text = gsub(" ?(f|ht)tp(s?)://(.*)[.][a-z]+", "",
+                     text)) 
+
+#write.csv(text_clean, "/Users/lunacatalan/Documents/dev/eds231/eds-231-textanalysis/class/data/text_clean.csv")
+
+corpus <- corpus(x = text_clean, 
                  text_field = "text") # column to extract text
+
 ```
 
 
@@ -35,7 +80,7 @@ corpus <- corpus(x = news_tbl,
 - remove punctuation, numbers, and url
 - make all the words lowercase
 - remove infrequent words
-```{r message=FALSE, error=FALSE}
+```{r message=FALSE, warning=FALSE}
 tokens <- tokens(corpus, 
                remove_punct = T,
                remove_numbers = T,
@@ -64,11 +109,11 @@ dfm <- dfm2[sel_ind, ]
 
 3.  Run three models (i.e. with 3 values of k) and select the overall best value for k (the number of topics) - include some justification for your selection: theory, FindTopicsNumber() optimization metrics, interpretability, LDAvis. Select the best single value of k.
 
-```{r message=FALSE, error=FALSE}
+```{r message=FALSE, warning=FALSE}
 set.seed(123)
 
 results <- FindTopicsNumber(dfm,
-                            topics = seq(from = 1,
+                            topics = seq(from = 2,
                                          to = 20,
                                          by = 1),
                             metrics = c("CaoJuan2009", "Deveaud2014"), # what to measure how good the number of topics 
@@ -79,33 +124,9 @@ FindTopicsNumber_plot(results)
 ```
 
 
-Try values of k from FindTopicsNumber(): 4, 5, 9
+Try values of k from FindTopicsNumber(): 5, 8. I am picking k = 5 because 8 topics is too many and it gets too descriptive. These 5 topics have a wide enough range of information that it distinguishes between arizona water policy, the epa policy, irrigation, cleanup, research. 
 
-```{r message=FALSE, error=FALSE}
-k <- 4
-
-topicModel_k <- LDA(dfm, # matrix
-                     k, # number of topics
-                     method = "Gibbs", # the upsampling process 
-                     control = list(iter = 1000,
-                                    verbose = 25))
-
-tmResults <- posterior(topicModel_k)
-terms(topicModel_k, 10)
-
-beta <- tmResults$terms
-# distribution of topics across articles
-theta <- tmResults$topics
-vocab <- colnames(beta)
-
-topics <- tidy(topicModel_k, matrix = "beta")
-
-top_terms4 <- topics %>% 
-  group_by(topic) %>% 
-  top_n(10, beta) %>% 
-  ungroup() %>% 
-  arrange(topic, -beta)
-
+```{r message=FALSE, warning=FALSE, results = FALSE}
 k <- 5
 
 topicModel_k <- LDA(dfm, # matrix
@@ -124,35 +145,35 @@ vocab <- colnames(beta)
 
 topics <- tidy(topicModel_k, matrix = "beta")
 
-top_terms5 <- topics %>% 
+top_terms <- topics %>% 
   group_by(topic) %>% 
   top_n(10, beta) %>% 
   ungroup() %>% 
   arrange(topic, -beta)
 
-k <- 9
+top_terms %>% 
+  mutate(term= reorder_within(term, beta, topic, sep = "")) %>% 
+  ggplot(aes(x = term, y = beta, fill = factor(topic))) +
+  geom_col(show.legend = F) +
+  facet_wrap(~topic, scales = "free_y") +
+  scale_x_reordered() +
+  coord_flip()
 
-topicModel_k <- LDA(dfm, # matrix
-                     k, # number of topics
-                     method = "Gibbs", # the upsampling process 
-                     control = list(iter = 1000,
-                                    verbose = 25))
+```
 
-tmResults <- posterior(topicModel_k)
-terms(topicModel_k, 10)
 
-beta <- tmResults$terms
-# distribution of topics across articles
-theta <- tmResults$topics
-vocab <- colnames(beta)
-
-topics <- tidy(topicModel_k, matrix = "beta")
-
-top_terms9 <- topics %>% 
-  group_by(topic) %>% 
-  top_n(10, beta) %>% 
-  ungroup() %>% 
-  arrange(topic, -beta)
+```{r warning=FALSE, warning = FALSE, results = "hide"}
+svd_tsne <- function(x) tsne(svd(x)$u)
+json <- createJSON(
+  phi = tmResults$terms, 
+  theta = tmResults$topics, 
+  doc.length = rowSums(dfm), 
+  vocab = colnames(dfm), 
+  term.frequency = colSums(dfm),
+  mds.method = svd_tsne,
+  plot.opts = list(xlab="", ylab="")
+)
+serVis(json)
 ```
 
 
@@ -161,15 +182,14 @@ top_terms9 <- topics %>%
 
 ```{r message=FALSE, error=FALSE}
 
-# plot the terms
-top_terms9 <- topics %>% 
-  group_by(topic) %>% 
-  top_n(10, beta) %>% 
-  ungroup() %>% 
-  arrange(topic, -beta)
+topic_words <- terms(topicModel_k, 5) # top 5 words for each topic
+
+# create topic names with first 5 words of the topics
+topic_names <- apply(topic_words, 2,
+                     paste, collapse = " ")
 
 # distribution of topics across documents - select the first 5 documents
-example_ids <- c(1:5)
+example_ids <- c(1:7)
 n <- length(example_ids)
 
 # get topic proportions from example documents
@@ -189,10 +209,12 @@ ggplot(data = viz_df,
        ylab = "proportion") +
   geom_bar(stat = "identity") +
   coord_flip() + 
-  facet_wrap(~document, ncol = n)
-
+  facet_wrap(~document, ncol = n) +
+  theme(axis.text.x = element_blank())
 
 ```
 
 
 5.  Take a stab at interpreting the resulting topics. What are the key themes discussed in the articles in your data base?
+
+The resulting topics have to do with management policy, research into groundwater management, eps's involvement with groundwater, the clean water act (cwa), and policy in arizona. The key themes are management policy involving the epa and the arizona government. Thsi makes sense considering the state of groundwater in Arizona and its water issues. 

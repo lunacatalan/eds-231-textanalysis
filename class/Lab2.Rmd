@@ -18,6 +18,7 @@ library(here)
 library(tidytext)
 library(tidyr) #pivot_wider()
 library(ggplot2)
+
 ```
 
 
@@ -34,11 +35,13 @@ library(ggplot2)
 -   Read your Nexis article documents into RStudio.
 
 ```{r message=FALSE, warning=FALSE, eval = FALSE}
-setwd("data/News_gw_policy/") #where the .docxs live
+#setwd(here("data/News_gw_policy/")) #where the .docxs live
+knitr::opts_knit$set(root.dir = "/Users/lunacatalan/Documents/dev/eds231/eds-231-textanalysis/class/data/News_gw_policy")
+getwd()
 news_files <- list.files(pattern = ".docx", 
                          path = getwd(),
                          full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
-
+news_files
 # take files list and read them into LNT object
 dat <- LexisNexisTools::lnt_read(news_files)
 
