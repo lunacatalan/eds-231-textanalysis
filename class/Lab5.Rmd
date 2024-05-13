@@ -121,7 +121,7 @@ dim(pmi_matrix)
 `management`
 `agricultural`
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 search_synonym <- function(word_vectors, selected_vector, original_word) {
   
   data <- word_vectors %*% selected_vector
@@ -138,7 +138,7 @@ search_synonym <- function(word_vectors, selected_vector, original_word) {
 
 Create the word vectors
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 
 # replace any na values with 0
 pmi_matrix@x[is.na(pmi_matrix@x)] <- 0
@@ -154,7 +154,7 @@ rownames(word_vectors) <- rownames(pmi_matrix)
 ```
 
 Find the synonyms for 3 words:
-```{r}
+```{r message=FALSE, warning=FALSE}
 
 protection <- search_synonym(word_vectors = word_vectors,
                        selected_vector = word_vectors["protection", ], # select specific word vector
@@ -172,7 +172,7 @@ agricultural <- search_synonym(word_vectors = word_vectors,
 ```
 
 Plot the similarities 
-```{r}
+```{r message=FALSE, warning=FALSE}
 protection %>% 
   mutate(selected = "protection") %>% 
   bind_rows(management %>% 
@@ -189,12 +189,13 @@ protection %>%
   coord_flip() +
   theme_minimal() +
   labs(x = NULL, title = "Which word vectors are most similar to protection, management, or agricultural?")
+
 ```
 Its interesting that in the top 10 words for protection that the word "lacking" shows up. This suggests that the context within these documents is highly associated with a lack of protection. Given the context of groundwater policy and knowing that there are declines in groundwater worldwide, it makes sense. The words most similar to management seem to be within the context of how things are managed (eg. plans, tools, governance) and what needs managed (eg. fisheries, drought, coastal). The most literal plot is the one for agricultural, with the most similar words being ones related to countries and economies. 
 
 3.  Assemble 3 word math equations that you think could be useful or interesting for exploring the meaning of key words or ideas in your data set.
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 groundwater_management <- word_vectors["groundwater",] + word_vectors["management",]
 
 search_synonym(word_vectors = word_vectors,
@@ -219,9 +220,15 @@ search_synonym(word_vectors = word_vectors,
 
 4.  Following the example in the SMLTR text (section 5.4), create a set of 100-dimensional GloVe word embeddings. These embeddings were trained by researchers at Stanford on 6 billion tokens from Wikipedia entries.
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 options(timeout = 100)
-glove6b <- read_delim(here::here("class/data/glove.6B.100d.txt"))
+glove6b <- read_table('data/glove.6B.100d.txt', col_names = FALSE)
+
+tidy_glove <- glove6b %>%
+  pivot_longer(cols = 2:101,
+               names_to = "dimension") %>%
+  rename(item1 = X1)
+
                     
 ```
 
@@ -231,4 +238,93 @@ glove6b <- read_delim(here::here("class/data/glove.6B.100d.txt"))
 
 Hint: you'll need to convert the GloVe dataframe to a matrix and set the row names in order to use our synonym function.
 
+```{r message=FALSE, warning=FALSE}
+# make into a matrix
+tidy_matrix <- tidy_glove %>% 
+  cast_sparse(item1, dimension, value)
+
+# replace any na values with 0
+tidy_matrix@x[is.na(tidy_matrix@x)] <- 0
+
+# perform decomposition
+tidy_svd <-svd(tidy_matrix)
+
+# set the row names
+word_vectors <- tidy_svd$u
+rownames(word_vectors) <- rownames(tidy_matrix)
+
+# write out equation
+equation <- word_vectors["berlin",] - word_vectors["germany",] + word_vectors["france",]
+
+# find the most related words
+search_synonym(word_vectors = word_vectors,
+                       selected_vector = equation, # select specific word vector
+                       original_word = "")
+
+```
+
 6.  Recreate parts 2 and 3 above using the the GloVe embeddings in place of the ones you made. How do they compare? What are the implications for applications of these embeddings?
+
+Part 2:
+
+```{r message=FALSE, warning=FALSE}
+
+protection <- search_synonym(word_vectors = word_vectors,
+                       selected_vector = word_vectors["protection", ], # select specific word vector
+                       original_word = "protection")
+
+
+management <- search_synonym(word_vectors = word_vectors,
+                       selected_vector = word_vectors["management", ], # select specific word vector
+                       original_word = "management")
+
+agricultural <- search_synonym(word_vectors = word_vectors,
+                       selected_vector = word_vectors["agricultural", ], # select specific word vector
+                       original_word = "agricultural")
+
+protection %>% 
+  mutate(selected = "protection") %>% 
+  bind_rows(management %>% 
+              mutate(selected = "management")) %>% 
+  bind_rows(agricultural %>% 
+              mutate(selected = "agricultural")) %>% 
+  group_by(selected) %>% 
+  top_n(10, similarity) %>% 
+  mutate(token = reorder(token, similarity)) %>% 
+  ggplot(aes(x = token, y = similarity,
+             fill = selected)) +
+  geom_col(show.legend = F) +
+  facet_wrap(~selected, scales = "free") +
+  coord_flip() +
+  theme_minimal() +
+  labs(x = NULL, title = "Which word vectors are most similar to protection, management, or agricultural in GloVe?")
+
+```
+
+The plots for these word distributions are much different than the ones that I ran above. The words have much more synonym similarity whereas when I plotted the graphs above there were a lot more insights into the contextual similarities between words. The implications of using these embeddings are that its hard to find the specific associations within a single topic. Additionally, the degree of association betewen these words is much lower than the first plot. 
+
+Part 3
+```{r message=FALSE, warning=FALSE}
+groundwater_management <- word_vectors["groundwater",] + word_vectors["management",]
+
+search_synonym(word_vectors = word_vectors,
+                       selected_vector = groundwater_management, # select specific word vector
+                       original_word = "")
+
+groundwater_community<-  word_vectors["groundwater",] + word_vectors["community",]
+
+search_synonym(word_vectors = word_vectors,
+                       selected_vector = groundwater_community, # select specific word vector
+                       original_word = "")
+
+groundwater_no_community<-  word_vectors["groundwater",] - word_vectors["community",]
+
+search_synonym(word_vectors = word_vectors,
+                       selected_vector = groundwater_no_community, # select specific word vector
+                       original_word = "")
+```
+
+For the word vector synonyms, the themes are more related. For the `groundwater_management` combination, the GloVe embeddings make more sense than the one that I did before. There are much more words related to types of management (eg. catchment) and what you would want to manage (eg. stormwater, wastewater). For `groundwater_community` combination the GloVe embeddings were not as intuitive as mine were. For `groundwater_no_community` the results were very similar, and were talking about contaminants and pollution. 
+
+
+In general, the GloVe word embeddings were more general, but the word_vector equations gave some interesting insights. 
